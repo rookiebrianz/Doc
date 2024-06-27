@@ -1,0 +1,299 @@
+{% load static %}
+
+<script>
+    // 视频iframe域名白名单
+    var iframe_whitelist = '{{ iframe_whitelist }}'.split(',')
+    var md_changed = false; // 初始化一个变量，用于判断编辑器是否修改
+
+    // 初始化editormd
+    if(screen_width.matches){
+        var editormd_watch = false;
+        var editormd_height = window.innerHeight / 2 + 'px';
+        var editormd_toobar = [
+            "h2","h3", "bold", "del", "italic", "quote","kaiSpan",  
+            "list-ul", "list-ol", "hr", "link", 
+            "mindmap","echart","imgUpload", "attachment" ,"multimedia","code", "code-block", "htmltable", 
+            "emoji", "pagebreak", 
+            "watch", "preview", "callAI"
+        ];
+    } else {
+        var editormd_watch = true;
+        var editormd_height = '800px'
+        var editormd_toobar = [
+            "undo", "redo", "|",
+            "h2","h3","h4","h5", "bold", "del", "italic", "quote","kaiSpan","mark",  
+            "list-ul", "list-ol", "hr", "link", "reference-link", 
+            "mindmap","echart","imgUpload", "attachment" ,"multimedia","code", "code-block", "htmltable", 
+            "emoji", "html-entities", "pagebreak", 
+            "watch", "preview", "help", "callAI"
+        ]
+    }
+
+    var editor = editormd("editor-md", {
+        width       : "100%",
+        height      : editormd_height,
+        placeholder : "道友，开始吧……",
+        toolbarIcons : function() {
+            return editormd_toobar;
+        },
+        // 自定义工具栏添加楷体按钮
+        toolbarIconTexts : {
+            kaiSpan : "楷",
+            callAI  : "AI"
+        },
+        // 自定义工具栏添加图片按钮
+        toolbarIconsClass : {
+            imgUpload:'fa-image',
+            attachment:'fa-upload',
+            htmltable:'fa-table',
+            mindmap:'fa-sitemap',
+            echart:'fa-bar-chart',
+            multimedia:'fa-youtube-play',
+            callAI: 'fa-magic'
+        },
+        // 设置自定义工具栏按钮的事件
+        toolbarHandlers : {
+            kaiSpan : function(cm, icon, cursor, selection) {
+                cm.replaceSelection('<span style="font-family:楷体">' + selection + "</span>");
+                if(selection === "") {
+                    cm.setCursor(cursor.line, cursor.ch + 29);
+                }
+            },
+            imgUpload : function(cm,icon,cursor,selection){
+                layer.ready(function(){
+                    element.init();
+                });
+                layer.open({
+                    type:'1',
+                    title:'添加图片',
+                    area:['800px','600px'],
+                    id:'uploadImg',
+                    content:$('#upload-img'),
+                })
+            },
+            attachment : function(cm,icon,cursor,selection){
+                layer.ready(function(){
+                    element.init();
+                });
+                layer.open({
+                    type:'1',
+                    title:'添加附件',
+                    area:['800px','600px'],
+                    id:'uploadAttach',
+                    content:$('#upload-attach'),
+                    success: function(layero, index){
+                        layer.load(1);
+                        $.post('{% url "manage_attachment" %}',{types:2},function(r){
+                            $("#attach_table tbody").empty()
+                            if(r.status){
+                                laypage.render({
+                                    elem: 'select-attach-page',
+                                    count: r.data.length,
+                                    limit:10,
+                                    jump: function(obj){
+                                        $("#attach_table tbody").empty();
+                                        var thisData = r.data.concat().splice(obj.curr*obj.limit - obj.limit, obj.limit);
+                                        layui.each(thisData, function(k, v){
+                                            var row = "<tr><td>" + v.filename + "</td><td>"+ v.filesize +"</td><td>"+ v.filetime +"</td><td><button class='layui-btn layui-btn-normal layui-btn-sm' data-name='"+ v.filename +"'  data-path='"+ v.filepath +"' onclick='insertAttach(this)'>选择</button></td></tr>"
+                                            $("#attach_table tbody").append(row)
+                                        });
+                                    }
+                                });
+                                layer.closeAll("loading");
+                            } else {
+                                layer.closeAll("loading");
+                                layer.msg("获取附件失败，请稍后重试！");
+                            }
+                        })
+                    }
+                })
+            },
+            htmltable:function(cm,icon,cursor,selection){
+                layer.ready(function(){
+                    element.init();
+                });
+                layer.open({
+                    type:1,
+                    id:'addTable',
+                    title:'添加表格',
+                    area:['600px','400px'],
+                    content:$("#layer-table"),
+                    btn:['确定','取消'],
+                    yes:function(index,layero){
+                        var current_tab_id = $("#insert-table-div .layui-tab-title .layui-this").attr("lay-id");
+                        if(current_tab_id == 'pasteTable'){
+                            editor.insertValue("\n" + $("#pasteExcel").val())
+                            layer.close(index)
+                        } else {
+                            try {
+                                var table_md = convertTable("DataTable1")
+                                editor.insertValue("\n" + table_md);
+                                layer.close(index)
+                            } catch (error) {
+                                layer.msg("请生成表格")
+                            }
+                        }
+                        $("#TableGroup").empty();
+                        $("#pasteExcel").val('');
+                        editor.focus();
+                    },
+                    btn2:function(index,layero){
+                        $("#TableGroup").empty();
+                        $("#pasteExcel").val('');
+                        layer.close(index);
+                    }
+                });
+            },
+            mindmap:function(cm,icon,cursor,selection){
+                if(selection === "") {
+                    let mindmap_example = "# 主题\n### 一级主题1\n### 一级主题2\n### 一级主题3"
+                    cm.replaceSelection('```mindmap\n' + mindmap_example + "\n```");
+                    cm.setCursor(cursor.line+1, cursor.ch);
+                } else {
+                    cm.replaceSelection('```mindmap\n' + selection + "\n```");
+                }
+            },
+            echart:function(cm,icon,cursor,selection){
+                cm.replaceSelection('```echart\n' + selection + "\n```");
+                if(selection === "") {
+                    cm.setCursor(cursor.line+1, cursor.ch);
+                }
+            },
+            multimedia:function(cm,icon,cursor,selection){
+                layer.open({
+                    type:'1',
+                    title:'添加音视频外链',
+                    area:['800px','600px'],
+                    id:'insertMultiMedia',
+                    content:$('#insertMultimedia'),
+                })
+            },
+            callAI: function(cm, icon, cursor, selection) {
+                layer.open({
+                    type: 1,
+                    title: 'AI 接口',
+                    area: ['800px', '600px'],
+                    content: `
+                        <div style="padding: 20px;">
+                            <textarea id="ai-input" style="width: 100%; height: 200px;" placeholder="请输入文本..."></textarea>
+                            <button id="ai-submit" style="margin-top: 10px;">提交</button>
+                            <textarea id="ai-output" style="width: 100%; height: 200px; margin-top: 10px;" readonly></textarea>
+                        </div>
+                    `,
+                    success: function(layero, index){
+                        $('#ai-submit').on('click', function() {
+                            var inputText = $('#ai-input').val();
+                            console.log("User input:", inputText); // 调试输出
+                            fetch('/ai_interface/ai/', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded',
+                                    'X-CSRFToken': '{{ csrf_token }}' // 添加 CSRF 令牌
+                                },
+                                body: new URLSearchParams({
+                                    'input_text': inputText
+                                })
+                            })
+                            .then(response => {
+                                console.log("Response status:", response.status); // 调试输出
+                                return response.json();
+                            })
+                            .then(data => {
+                                console.log("Response data:", data); // 调试输出
+                                $('#ai-output').val(data.text);
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                            });
+                        });
+                    }
+                });
+            }
+        },
+        lang : {
+            toolbar : {
+                kaiSpan : "添加楷体span标签",
+                imgUpload:"添加图片到文档",
+                attachment:"添加附件",
+                htmltable:"添加表格",
+                mindmap:"添加思维导图",
+                echart:"添加Echarts图表",
+                multimedia:"添加音频、视频",
+                callAI: "调用 AI 接口"
+            }
+        },
+        watch       : editormd_watch,
+        pageBreak   : true,
+        path        : "/static/editor.md/lib/",
+        saveHTMLToTextarea : true,
+        atLink      : false,
+        tex         : true,
+        toc         : false,
+        tocm        : false,
+        taskList    : true,
+        tocDropdown : false,
+        emoji       : true,
+        flowChart   : true,
+        sequenceDiagram : true,
+        imageUpload    : true,
+        codeFold       : true,
+        htmlDecode     : "link,style,base,script|on*",
+        imageFormats   : ["jpg", "jpeg", "gif", "png", "bmp", "webp"],
+        imageUploadURL : "{% url 'upload_doc_img' %}",
+        onchange:function(){
+            md_changed = true;
+            var wcnt = this.getMarkdown().length;
+            $("#wordcount").text(wcnt);
+            autoCacheDoc();
+        },
+        onload : function() {
+            var wcnt = this.getMarkdown().length;
+            $("#wordcount").text(wcnt);
+        }
+    });
+
+    // 粘贴上传图片
+    $("#editor-md").on('paste', function (ev) {
+        var data = ev.clipboardData;
+        var items = (event.clipboardData || event.originalEvent.clipboardData).items;
+        for (var index in items) {
+            var item = items[index];
+            if (item.kind === 'file') {
+                var blob = item.getAsFile();
+                var reader = new FileReader();
+                reader.onload = function (event) {
+                    var base64 = event.target.result;
+                    layer.load(1);
+                    $.ajax({
+                        url:"{% url 'upload_doc_img' %}",
+                        type:"post",
+                        data:{base:base64},
+                        success:function(ret){
+                            if (ret.success === 1) {
+                                layer.closeAll("loading");
+                                editor.insertValue("\n![](" + ret.url + ")");
+                                editor.focus()
+                            }else{
+                                layer.closeAll("loading");
+                                layer.msg("粘贴图片失败！")
+                            }
+                        },
+                        error:function(){
+                            layer.closeAll('loading');
+                        }
+                    })
+                };
+                var url = reader.readAsDataURL(blob);
+            }
+        }
+    });
+    
+    // 未保存离开提示
+    window.onbeforeunload =function() {
+        if(md_changed){
+            return 1;
+        }else{
+            return null;
+        }
+    };
+</script>
